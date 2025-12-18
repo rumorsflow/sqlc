@@ -79,6 +79,37 @@ func (q *Queries) {{.MethodName}}(ctx context.Context, {{.Arg.Pair}}) ([]{{.Ret.
 }
 {{end}}
 
+{{if eq .Cmd ":seq2"}}
+{{range .Comments}}//{{.}}
+{{end -}}
+{{- if $.EmitMethodsWithDBArgument -}}
+func (q *Queries) {{.MethodName}}(ctx context.Context, db DBTX, {{.Arg.Pair}}) iter.Seq2[{{.Ret.DefineType}}, error] {
+{{- else -}}
+func (q *Queries) {{.MethodName}}(ctx context.Context, {{.Arg.Pair}}) iter.Seq2[{{.Ret.DefineType}}, error] {
+{{- end}}
+    return func(yield func(Site, error) bool) {
+        rows, err := db.Query(ctx, {{.ConstantName}}, {{.Arg.Params}})
+        if err != nil {
+            yield({{if .Ret.IsPointer}}nil{{else}}{{.Ret.Type}}{}{{end}}, {{if $.WrapErrors}}fmt.Errorf("query {{.MethodName}}: %w", err){{else}}err{{end}})
+            return
+        }
+        defer rows.Close()
+        for rows.Next() {
+            var {{.Ret.Name}} {{.Ret.Type}}
+            if err := rows.Scan({{.Ret.Scan}}); err != nil {
+                yield({{.Ret.ReturnName}}, {{if $.WrapErrors}}fmt.Errorf("query {{.MethodName}}: %w", err){{else}}err{{end}})
+                return
+            } else if !yield({{.Ret.ReturnName}}, nil) {
+                return
+            }
+        }
+        if err := rows.Err(); err != nil {
+            yield({{if .Ret.IsPointer}}nil{{else}}{{.Ret.Type}}{}{{end}}, {{if $.WrapErrors}}fmt.Errorf("query {{.MethodName}}: %w", err){{else}}err{{end}})
+        }
+    }
+}
+{{end}}
+
 {{if eq .Cmd ":exec"}}
 {{range .Comments}}//{{.}}
 {{end -}}

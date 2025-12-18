@@ -3,9 +3,10 @@ package metadata
 import (
 	"bufio"
 	"fmt"
-	"github.com/sqlc-dev/sqlc/internal/constants"
 	"strings"
 	"unicode"
+
+	"github.com/sqlc-dev/sqlc/internal/constants"
 
 	"github.com/sqlc-dev/sqlc/internal/source"
 )
@@ -37,6 +38,7 @@ const (
 	CmdBatchExec  = ":batchexec"
 	CmdBatchMany  = ":batchmany"
 	CmdBatchOne   = ":batchone"
+	CmdSeq2       = ":seq2"
 )
 
 // A query name must be a valid Go identifier
@@ -98,7 +100,7 @@ func ParseQueryNameAndType(t string, commentStyle CommentSyntax) (string, string
 			part = part[:len(part)-1] // removes the trailing "*/" element
 		}
 		if len(part) == 3 {
-			return "", "", fmt.Errorf("missing query type [':one', ':many', ':exec', ':execrows', ':execlastid', ':execresult', ':copyfrom', 'batchexec', 'batchmany', 'batchone']: %s", line)
+			return "", "", fmt.Errorf("missing query type [':one', ':many', ':exec', ':execrows', ':execlastid', ':execresult', ':copyfrom', ':batchexec', ':batchmany', ':batchone', ':seq2']: %s", line)
 		}
 		if len(part) != 4 {
 			return "", "", fmt.Errorf("invalid query comment: %s", line)
@@ -106,7 +108,7 @@ func ParseQueryNameAndType(t string, commentStyle CommentSyntax) (string, string
 		queryName := part[2]
 		queryType := strings.TrimSpace(part[3])
 		switch queryType {
-		case CmdOne, CmdMany, CmdExec, CmdExecResult, CmdExecRows, CmdExecLastId, CmdCopyFrom, CmdBatchExec, CmdBatchMany, CmdBatchOne:
+		case CmdOne, CmdMany, CmdExec, CmdExecResult, CmdExecRows, CmdExecLastId, CmdCopyFrom, CmdBatchExec, CmdBatchMany, CmdBatchOne, CmdSeq2:
 		default:
 			return "", "", fmt.Errorf("invalid query type: %s", queryType)
 		}
