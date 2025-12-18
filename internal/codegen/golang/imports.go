@@ -180,7 +180,7 @@ func buildImports(options *opts.Options, queries []Query, uses func(string) bool
 				std["database/sql"] = struct{}{}
 			}
 		} else if q.Cmd == metadata.CmdSeq2 {
-			pkg[ImportSpec{Path: "iter"}] = struct{}{}
+			std["iter"] = struct{}{}
 		}
 	}
 
