@@ -271,7 +271,8 @@ type Query struct {
 
 func (q Query) hasRetType() bool {
 	scanned := q.Cmd == metadata.CmdOne || q.Cmd == metadata.CmdMany ||
-		q.Cmd == metadata.CmdBatchMany || q.Cmd == metadata.CmdBatchOne
+		q.Cmd == metadata.CmdBatchMany || q.Cmd == metadata.CmdBatchOne ||
+		q.Cmd == metadata.CmdSeq2
 	return scanned && !q.Ret.isEmpty()
 }
 
