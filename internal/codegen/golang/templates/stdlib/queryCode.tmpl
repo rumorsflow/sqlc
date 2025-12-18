@@ -68,6 +68,38 @@ func (q *Queries) {{.MethodName}}(ctx context.Context, {{ dbarg }} {{.Arg.Pair}}
 }
 {{end}}
 
+{{if eq .Cmd ":seq2"}}
+{{range .Comments}}//{{.}}
+{{end -}}
+func (q *Queries) {{.MethodName}}(ctx context.Context, {{ dbarg }} {{.Arg.Pair}}) iter.Seq2[{{.Ret.DefineType}}, error] {
+    return func(yield func({{.Ret.DefineType}}, error) bool) {
+        {{- template "queryCodeStdExec" . }}
+        if err != nil {
+            yield({{if .Ret.IsPointer}}nil{{else}}{{.Ret.Type}}{}{{end}}, {{if $.WrapErrors}}fmt.Errorf("query {{.MethodName}}: %w", err){{else}}err{{end}})
+            return
+        }
+        defer rows.Close()
+        for rows.Next() {
+            var {{.Ret.Name}} {{.Ret.Type}}
+            if err := rows.Scan({{.Ret.Scan}}); err != nil {
+                yield({{.Ret.ReturnName}}, {{if $.WrapErrors}}fmt.Errorf("query {{.MethodName}}: %w", err){{else}}err{{end}})
+                return
+            }
+
+            if !yield({{.Ret.ReturnName}}, nil) {
+                return
+            }
+        }
+        if err := rows.Close(); err != nil {
+            yield({{if .Ret.IsPointer}}nil{{else}}{{.Ret.Type}}{}{{end}}, {{if $.WrapErrors}}fmt.Errorf("query {{.MethodName}}: %w", err){{else}}err{{end}})
+        }
+        if err := rows.Err(); err != nil {
+            yield({{if .Ret.IsPointer}}nil{{else}}{{.Ret.Type}}{}{{end}}, {{if $.WrapErrors}}fmt.Errorf("query {{.MethodName}}: %w", err){{else}}err{{end}})
+        }
+    }
+}
+{{end}}
+
 {{if eq .Cmd ":exec"}}
 {{range .Comments}}//{{.}}
 {{end -}}
