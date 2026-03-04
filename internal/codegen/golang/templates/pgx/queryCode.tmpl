@@ -179,10 +179,11 @@ func (r *{{.MethodName}}Rows) Iter() iter.Seq[{{.Ret.DefineType}}] {
 	}
 }
 
-func (r *{{.MethodName}}Rows) Close() {
+func (r *{{.MethodName}}Rows) Close() error {
     if r.rows != nil {
 	    r.rows.Close()
 	}
+	return nil
 }
 
 func (r *{{.MethodName}}Rows) Err() error {
