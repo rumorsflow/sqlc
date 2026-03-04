@@ -168,6 +168,10 @@ func buildImports(options *opts.Options, queries []Query, uses func(string) bool
 		std["database/sql"] = struct{}{}
 	}
 
+	if uses("iter.Seq") {
+		std["iter"] = struct{}{}
+	}
+
 	sqlpkg := parseDriver(options.SqlPackage)
 	for _, q := range queries {
 		if q.Cmd == metadata.CmdExecResult {
@@ -185,6 +189,15 @@ func buildImports(options *opts.Options, queries []Query, uses func(string) bool
 	for typeName, pkg := range stdlibTypes {
 		if uses(typeName) {
 			std[pkg] = struct{}{}
+		}
+	}
+
+	if uses("pgx.") {
+		switch sqlpkg {
+		case opts.SQLDriverPGXV4:
+			pkg[ImportSpec{Path: "github.com/jackc/pgx/v4"}] = struct{}{}
+		case opts.SQLDriverPGXV5:
+			pkg[ImportSpec{Path: "github.com/jackc/pgx/v5"}] = struct{}{}
 		}
 	}
 
@@ -483,13 +496,6 @@ func (i *importer) batchImports() fileImports {
 
 	std["context"] = struct{}{}
 	std["errors"] = struct{}{}
-	sqlpkg := parseDriver(i.Options.SqlPackage)
-	switch sqlpkg {
-	case opts.SQLDriverPGXV4:
-		pkg[ImportSpec{Path: "github.com/jackc/pgx/v4"}] = struct{}{}
-	case opts.SQLDriverPGXV5:
-		pkg[ImportSpec{Path: "github.com/jackc/pgx/v5"}] = struct{}{}
-	}
 
 	return sortedImports(std, pkg)
 }
