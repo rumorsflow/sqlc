@@ -33,7 +33,7 @@ func (q *Queries) {{.MethodName}}(ctx context.Context, {{ dbarg }} {{.Arg.Pair}}
         {{- end}}
         {{- if .Ret.IsPointer }}
         return nil, err
-        {{- else -}}
+        {{- else }}
         return {{.Ret.ReturnName}}, err
         {{- end}}
 	}

@@ -42,7 +42,7 @@ func (q *Queries) {{.MethodName}}(ctx context.Context, {{.Arg.Pair}}) ({{.Ret.De
 	    {{- end}}
 	    {{- if .Ret.IsPointer }}
         return nil, err
-        {{- else -}}
+        {{- else }}
         return {{.Ret.ReturnName}}, err
         {{- end}}
 	}
