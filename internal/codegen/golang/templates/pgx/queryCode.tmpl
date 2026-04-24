@@ -40,6 +40,9 @@ func (q *Queries) {{.MethodName}}(ctx context.Context, {{.Arg.Pair}}) ({{.Ret.De
 	{{- if $.WrapErrors}}
 	if err != nil {
 		err = fmt.Errorf("query {{.MethodName}}: %w", err)
+		{{- if $.EmitResultStructPointers }}
+		return nil, err
+		{{- end}}
 	}
 	{{- end}}
 	return {{.Ret.ReturnName}}, err
