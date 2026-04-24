@@ -27,13 +27,17 @@ func (q *Queries) {{.MethodName}}(ctx context.Context, {{ dbarg }} {{.Arg.Pair}}
 	{{- if or (ne .Arg.Pair .Ret.Pair) (ne .Arg.DefineType .Ret.DefineType) }}
 	var {{.Ret.Name}} {{.Ret.Type}}
 	{{- end}}
-	err := row.Scan({{.Ret.Scan}})
-	{{- if $.WrapErrors}}
-	if err != nil {
-		err = fmt.Errorf("query {{.MethodName}}: %w", err)
+	if err := row.Scan({{.Ret.Scan}}); err != nil {
+	    {{- if $.WrapErrors}}
+        err = fmt.Errorf("query {{.MethodName}}: %w", err)
+        {{- end}}
+        {{- if $.EmitResultStructPointers }}
+        return nil, err
+        {{- else -}}
+        return {{.Ret.ReturnName}}, err
+        {{- end}}
 	}
-	{{- end}}
-	return {{.Ret.ReturnName}}, err
+	return {{.Ret.ReturnName}}, nil
 }
 {{end}}
 

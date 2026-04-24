@@ -36,16 +36,17 @@ func (q *Queries) {{.MethodName}}(ctx context.Context, {{.Arg.Pair}}) ({{.Ret.De
 	{{- if or (ne .Arg.Pair .Ret.Pair) (ne .Arg.DefineType .Ret.DefineType) }}
 	var {{.Ret.Name}} {{.Ret.Type}}
 	{{- end}}
-	err := row.Scan({{.Ret.Scan}})
-	{{- if $.WrapErrors}}
-	if err != nil {
-		err = fmt.Errorf("query {{.MethodName}}: %w", err)
-		{{- if $.EmitResultStructPointers }}
-		return nil, err
-		{{- end}}
+	if err := row.Scan({{.Ret.Scan}}); err != nil {
+	    {{- if $.WrapErrors}}
+	    err = fmt.Errorf("query {{.MethodName}}: %w", err)
+	    {{- end}}
+	    {{- if $.EmitResultStructPointers }}
+        return nil, err
+        {{- else -}}
+        return {{.Ret.ReturnName}}, err
+        {{- end}}
 	}
-	{{- end}}
-	return {{.Ret.ReturnName}}, err
+	return {{.Ret.ReturnName}}, nil
 }
 {{end}}
 
