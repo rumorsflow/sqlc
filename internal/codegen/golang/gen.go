@@ -34,7 +34,6 @@ type tmplCtx struct {
 	EmitPreparedQueries       bool
 	EmitInterface             bool
 	EmitEmptySlices           bool
-	EmitResultStructPointers  bool
 	EmitMethodsWithDBArgument bool
 	EmitEnumValidMethod       bool
 	EmitAllEnumValues         bool
@@ -179,7 +178,6 @@ func generate(req *plugin.GenerateRequest, options *opts.Options, enums []Enum, 
 		EmitDBTags:                options.EmitDbTags,
 		EmitPreparedQueries:       options.EmitPreparedQueries,
 		EmitEmptySlices:           options.EmitEmptySlices,
-		EmitResultStructPointers:  options.EmitResultStructPointers,
 		EmitMethodsWithDBArgument: options.EmitMethodsWithDbArgument,
 		EmitEnumValidMethod:       options.EmitEnumValidMethod,
 		EmitAllEnumValues:         options.EmitAllEnumValues,
