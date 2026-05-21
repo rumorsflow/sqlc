@@ -1,7 +1,7 @@
 {{define "dbCodeTemplatePgx"}}
 
 {{- if .UsesIter }}
-	type Rows[T] interface {
+	type Rows[T any] interface {
 		Iter() iter.Seq[T]
 		Err() error
 		Close() error
