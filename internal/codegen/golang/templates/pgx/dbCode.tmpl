@@ -1,5 +1,13 @@
 {{define "dbCodeTemplatePgx"}}
 
+{{- if .UsesIter }}
+	type Rows[T] interface {
+		Iter() iter.Seq[T]
+		Err() error
+		Close() error
+	}
+{{- end }}
+
 type DBTX interface {
 	Exec(context.Context, string, ...interface{}) (pgconn.CommandTag, error)
 	Query(context.Context, string, ...interface{}) (pgx.Rows, error)

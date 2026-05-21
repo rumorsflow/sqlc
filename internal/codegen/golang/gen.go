@@ -40,6 +40,7 @@ type tmplCtx struct {
 	EmitAllEnumValues         bool
 	UsesCopyFrom              bool
 	UsesBatch                 bool
+	UsesIter                  bool
 	OmitSqlcVersion           bool
 	BuildTags                 string
 	WrapErrors                bool
@@ -184,6 +185,7 @@ func generate(req *plugin.GenerateRequest, options *opts.Options, enums []Enum, 
 		EmitAllEnumValues:         options.EmitAllEnumValues,
 		UsesCopyFrom:              usesCopyFrom(queries),
 		UsesBatch:                 usesBatch(queries),
+		UsesIter:                  usesIter(queries),
 		SQLDriver:                 parseDriver(options.SqlPackage),
 		Q:                         "`",
 		Package:                   options.Package,
@@ -352,6 +354,15 @@ func usesBatch(queries []Query) bool {
 			if q.Cmd == cmd {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func usesIter(queries []Query) bool {
+	for _, q := range queries {
+		if q.Cmd == metadata.CmdIter {
+			return true
 		}
 	}
 	return false

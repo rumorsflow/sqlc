@@ -124,6 +124,10 @@ func (i *importer) dbImports() fileImports {
 		{Path: "context"},
 	}
 
+	if usesIter(i.Queries) {
+		std = append(std, ImportSpec{Path: "iter"})
+	}
+
 	sqlpkg := parseDriver(i.Options.SqlPackage)
 	switch sqlpkg {
 	case opts.SQLDriverPGXV4:

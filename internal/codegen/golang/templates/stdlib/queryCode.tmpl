@@ -127,7 +127,7 @@ func (q *Queries) {{.MethodName}}(ctx context.Context, {{ dbarg }} {{.Arg.Pair}}
 {{if eq .Cmd ":iter"}}
 {{range .Comments}}//{{.}}
 {{end -}}
-func (q *Queries) {{.MethodName}}(ctx context.Context, {{ dbarg }} {{.Arg.Pair}}) *{{.MethodName}}Rows {
+func (q *Queries) {{.MethodName}}(ctx context.Context, {{ dbarg }} {{.Arg.Pair}}) Rows[{{.Ret.DefineType}}] {
     {{- template "queryCodeStdExec" . }}
     if err != nil {
         return New{{.MethodName}}RowsErr(err)

@@ -23,11 +23,11 @@
         {{- if and (eq .Cmd ":iter") ($dbtxParam) }}
             {{range .Comments}}//{{.}}
             {{end -}}
-            {{.MethodName}}(ctx context.Context, db DBTX, {{.Arg.Pair}}) *{{.MethodName}}Rows
+            {{.MethodName}}(ctx context.Context, db DBTX, {{.Arg.Pair}}) Rows[{{.Ret.DefineType}}]
         {{- else if eq .Cmd ":iter" }}
             {{range .Comments}}//{{.}}
             {{end -}}
-            {{.MethodName}}(ctx context.Context, {{.Arg.Pair}}) *{{.MethodName}}Rows
+            {{.MethodName}}(ctx context.Context, {{.Arg.Pair}}) Rows[{{.Ret.DefineType}}]
         {{- end}}
         {{- if and (eq .Cmd ":exec") ($dbtxParam) }}
             {{range .Comments}}//{{.}}
