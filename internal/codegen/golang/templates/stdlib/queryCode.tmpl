@@ -130,14 +130,22 @@ func (q *Queries) {{.MethodName}}(ctx context.Context, {{ dbarg }} {{.Arg.Pair}}
 func (q *Queries) {{.MethodName}}(ctx context.Context, {{ dbarg }} {{.Arg.Pair}}) *{{.MethodName}}Rows {
     {{- template "queryCodeStdExec" . }}
     if err != nil {
-        return &{{.MethodName}}Rows{err: err}
+        return New{{.MethodName}}RowsErr(err)
     }
-    return &{{.MethodName}}Rows{rows: rows}
+    return New{{.MethodName}}Rows(rows)
 }
 
 type {{.MethodName}}Rows struct {
     rows *sql.Rows
     err  error
+}
+
+func New{{.MethodName}}Rows(rows *sql.Rows) *{{.MethodName}}Rows {
+    return &{{.MethodName}}Rows{rows: rows}
+}
+
+func New{{.MethodName}}RowsErr(err error) *{{.MethodName}}Rows {
+    return &{{.MethodName}}Rows{err: err}
 }
 
 func (r *{{.MethodName}}Rows) Iter() iter.Seq[{{.Ret.DefineType}}] {

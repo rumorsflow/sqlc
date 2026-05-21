@@ -151,14 +151,22 @@ func (q *Queries) {{.MethodName}}(ctx context.Context, {{.Arg.Pair}}) *{{.Method
 	rows, err := q.db.Query(ctx, {{.ConstantName}}, {{.Arg.Params}})
 {{- end}}
 	if err != nil {
-		return &{{.MethodName}}Rows{err: err}
+		return New{{.MethodName}}RowsErr(err)
 	}
-	return &{{.MethodName}}Rows{rows: rows}
+	return New{{.MethodName}}Rows(rows)
 }
 
 type {{.MethodName}}Rows struct {
     rows pgx.Rows
     err  error
+}
+
+func New{{.MethodName}}Rows(rows pgx.Rows) *{{.MethodName}}Rows {
+    return &{{.MethodName}}Rows{rows: rows}
+}
+
+func New{{.MethodName}}RowsErr(err error) *{{.MethodName}}Rows {
+    return &{{.MethodName}}Rows{err: err}
 }
 
 func (r *{{.MethodName}}Rows) Iter() iter.Seq[{{.Ret.DefineType}}] {
