@@ -2,8 +2,6 @@ module github.com/sqlc-dev/sqlc
 
 go 1.26.0
 
-toolchain go1.26.5
-
 require (
 	github.com/cubicdaiya/gonp v1.0.4
 	github.com/davecgh/go-spew v1.1.1
