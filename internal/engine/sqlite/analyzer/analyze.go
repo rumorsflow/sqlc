@@ -16,6 +16,7 @@ import (
 	"github.com/sqlc-dev/sqlc/internal/sql/named"
 	"github.com/sqlc-dev/sqlc/internal/sql/sqlerr"
 	"github.com/sqlc-dev/sqlc/internal/sqlcdebug"
+	_ "github.com/sqlc-dev/sqlc/internal/sqlite3ext"
 )
 
 var debugDatabases = sqlcdebug.New("databases")
@@ -86,7 +87,7 @@ func (a *Analyzer) Analyze(ctx context.Context, n ast.Node, query string, migrat
 
 	// Get column information
 	colCount := stmt.ColumnCount()
-	for i := 0; i < colCount; i++ {
+	for i := range colCount {
 		name := stmt.ColumnName(i)
 		declType := stmt.ColumnDeclType(i)
 		dbName := stmt.ColumnDatabaseName(i)
@@ -251,7 +252,7 @@ func (a *Analyzer) GetColumnNames(ctx context.Context, query string) ([]string, 
 
 	colCount := stmt.ColumnCount()
 	columns := make([]string, colCount)
-	for i := 0; i < colCount; i++ {
+	for i := range colCount {
 		columns[i] = stmt.ColumnName(i)
 	}
 
