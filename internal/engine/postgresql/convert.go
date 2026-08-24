@@ -3,7 +3,7 @@ package postgresql
 import (
 	"fmt"
 
-	pg "github.com/pganalyze/pg_query_go/v6"
+	pg "github.com/sqlc-dev/oliphant"
 
 	"github.com/sqlc-dev/sqlc/internal/sql/ast"
 )
@@ -1418,15 +1418,36 @@ func convertDeleteStmt(n *pg.DeleteStmt) *ast.DeleteStmt {
 	if n == nil {
 		return nil
 	}
+	oldAlias, newAlias := convertReturningOptions(n.ReturningClause)
 	return &ast.DeleteStmt{
 		Relations: &ast.List{
 			Items: []ast.Node{convertRangeVar(n.Relation)},
 		},
-		UsingClause:   convertSlice(n.UsingClause),
-		WhereClause:   convertNode(n.WhereClause),
-		ReturningList: convertSlice(n.ReturningList),
-		WithClause:    convertWithClause(n.WithClause),
+		UsingClause:       convertSlice(n.UsingClause),
+		WhereClause:       convertNode(n.WhereClause),
+		ReturningList:     convertSlice(n.ReturningClause.GetExprs()),
+		ReturningOldAlias: oldAlias,
+		ReturningNewAlias: newAlias,
+		WithClause:        convertWithClause(n.WithClause),
 	}
+}
+
+// convertReturningOptions extracts the aliases assigned to the OLD and NEW
+// rows by a PostgreSQL 18 RETURNING WITH (...) option list.
+func convertReturningOptions(n *pg.ReturningClause) (oldAlias, newAlias string) {
+	for _, option := range n.GetOptions() {
+		ro := option.GetReturningOption()
+		if ro == nil {
+			continue
+		}
+		switch ro.Option {
+		case pg.ReturningOptionKind_RETURNING_OPTION_OLD:
+			oldAlias = ro.Value
+		case pg.ReturningOptionKind_RETURNING_OPTION_NEW:
+			newAlias = ro.Value
+		}
+	}
+	return oldAlias, newAlias
 }
 
 func convertDiscardStmt(n *pg.DiscardStmt) *ast.DiscardStmt {
@@ -1801,14 +1822,17 @@ func convertInsertStmt(n *pg.InsertStmt) *ast.InsertStmt {
 	if n == nil {
 		return nil
 	}
+	oldAlias, newAlias := convertReturningOptions(n.ReturningClause)
 	return &ast.InsertStmt{
-		Relation:         convertRangeVar(n.Relation),
-		Cols:             convertSlice(n.Cols),
-		SelectStmt:       convertNode(n.SelectStmt),
-		OnConflictClause: convertOnConflictClause(n.OnConflictClause),
-		ReturningList:    convertSlice(n.ReturningList),
-		WithClause:       convertWithClause(n.WithClause),
-		Override:         ast.OverridingKind(n.Override),
+		Relation:          convertRangeVar(n.Relation),
+		Cols:              convertSlice(n.Cols),
+		SelectStmt:        convertNode(n.SelectStmt),
+		OnConflictClause:  convertOnConflictClause(n.OnConflictClause),
+		ReturningList:     convertSlice(n.ReturningClause.GetExprs()),
+		ReturningOldAlias: oldAlias,
+		ReturningNewAlias: newAlias,
+		WithClause:        convertWithClause(n.WithClause),
+		Override:          ast.OverridingKind(n.Override),
 	}
 }
 
@@ -1825,13 +1849,17 @@ func convertIntoClause(n *pg.IntoClause) *ast.IntoClause {
 	if n == nil {
 		return nil
 	}
+	var viewQuery ast.Node = &ast.TODO{}
+	if n.ViewQuery != nil {
+		viewQuery = convertQuery(n.ViewQuery)
+	}
 	return &ast.IntoClause{
 		Rel:            convertRangeVar(n.Rel),
 		ColNames:       convertSlice(n.ColNames),
 		Options:        convertSlice(n.Options),
 		OnCommit:       ast.OnCommitAction(n.OnCommit),
 		TableSpaceName: makeString(n.TableSpaceName),
-		ViewQuery:      convertNode(n.ViewQuery),
+		ViewQuery:      viewQuery,
 		SkipData:       n.SkipData,
 	}
 }
@@ -2434,7 +2462,7 @@ func convertRowCompareExpr(n *pg.RowCompareExpr) *ast.RowCompareExpr {
 	}
 	return &ast.RowCompareExpr{
 		Xpr:          convertNode(n.Xpr),
-		Rctype:       ast.RowCompareType(n.Rctype),
+		Rctype:       ast.RowCompareType(n.Cmptype),
 		Opnos:        convertSlice(n.Opnos),
 		Opfamilies:   convertSlice(n.Opfamilies),
 		Inputcollids: convertSlice(n.Inputcollids),
@@ -2801,15 +2829,18 @@ func convertUpdateStmt(n *pg.UpdateStmt) *ast.UpdateStmt {
 		return nil
 	}
 
+	oldAlias, newAlias := convertReturningOptions(n.ReturningClause)
 	return &ast.UpdateStmt{
 		Relations: &ast.List{
 			Items: []ast.Node{convertRangeVar(n.Relation)},
 		},
-		TargetList:    convertSlice(n.TargetList),
-		WhereClause:   convertNode(n.WhereClause),
-		FromClause:    convertSlice(n.FromClause),
-		ReturningList: convertSlice(n.ReturningList),
-		WithClause:    convertWithClause(n.WithClause),
+		TargetList:        convertSlice(n.TargetList),
+		WhereClause:       convertNode(n.WhereClause),
+		FromClause:        convertSlice(n.FromClause),
+		ReturningList:     convertSlice(n.ReturningClause.GetExprs()),
+		ReturningOldAlias: oldAlias,
+		ReturningNewAlias: newAlias,
+		WithClause:        convertWithClause(n.WithClause),
 	}
 }
 

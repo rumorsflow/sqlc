@@ -89,18 +89,23 @@ go test -v ./internal/config -run TestConfig
 go test -race ./internal/config
 ```
 
-## Test Types
+## Testing Strategy
 
-### 1. Unit Tests
+**Cover new work with end-to-end tests, not unit tests.** A change to the
+compiler, an engine, the analysis core or codegen is exercised by running sqlc
+the way a user does — a schema, a query file and a committed golden output —
+so the test says what sqlc produces rather than what an internal function
+returns. Internal APIs move around; the SQL that goes in and the output that
+comes out is the contract worth pinning down.
 
-- **Location:** Throughout the codebase as `*_test.go` files
-- **Run without:** Database or external dependencies
-- **Examples:**
-  - `/internal/config/config_test.go` - Configuration parsing
-  - `/internal/compiler/selector_test.go` - Compiler logic
-  - `/internal/metadata/metadata_test.go` - Query metadata parsing
+Adding coverage means adding a directory under `/internal/endtoend/testdata/`,
+not a `*_test.go` next to the code. Reach for a unit test only when the
+behavior genuinely cannot be reached through the CLI, and say why in the test.
 
-### 2. End-to-End Tests
+Some `*_test.go` files predate this and remain; they are not a precedent for
+new ones.
+
+### End-to-End Tests
 
 - **Location:** `/internal/endtoend/`
 - **Requirements:** `--tags=examples` flag and running databases
@@ -111,7 +116,34 @@ go test -race ./internal/config
   - `TestJsonSchema` - JSON schema validation
   - `TestExamplesVet` - Static analysis tests
 
-### 3. Example Tests
+A case is a directory holding the inputs and the expected output. `exec.json`
+names the command and its arguments — omit it and the case runs `generate`,
+comparing the generated files against the ones committed alongside; give it
+`{"command": "analyze", "args": [...]}` and the case compares the command's
+stdout against `stdout.txt`. A case that is expected to fail commits its
+`stderr.txt`. Regenerate a golden by running the command in its directory and
+writing the output back over the committed file.
+
+`TestReplay` runs the whole corpus once per *context*. `base` runs each case as
+committed and `managed-db` reruns it against a live database, so a context can
+change the config a case is generated with and the experiments it is generated
+under. A case restricts itself to some of them with `"contexts": [...]` in its
+`exec.json`, and commits per-context expected errors as `stderr/<context>.txt`.
+There is only one set of committed golden files, so every context is expected
+to generate identical code.
+
+The `core` context generates every case through the analysis core
+(`SQLCEXPERIMENT=coreanalyzer`). The two paths still disagree, so it is opt-in
+and needs no database:
+
+```bash
+SQLC_TEST_CORE=1 go test ./internal/endtoend -run 'TestReplay/core'
+```
+
+Go aborts a test binary on panic, so a case that panics the core analyzer ends
+the run early. Run a subset to get past one (`-run 'TestReplay/core/^select'`).
+
+### Example Tests
 
 - **Location:** `/examples/` directory
 - **Requirements:** Tagged with "examples", requires live databases
@@ -183,6 +215,9 @@ MYSQL_SERVER_URI="root:mysecretpassword@tcp(127.0.0.1:3306)/mysql?multiStatement
   - `/postgresql/` - PostgreSQL parser and converter
   - `/dolphin/` - MySQL parser (uses TiDB parser)
   - `/sqlite/` - SQLite parser
+  - `<engine>/dialect/` - The engine's type system and standard library, as
+    JSONL read by `/internal/core/seed`
+- `/internal/core/` - The analysis core: catalog, analyzer and dialect seeds
 - `/internal/compiler/` - Query compilation logic
 - `/internal/codegen/` - Code generation for different languages
 - `/internal/config/` - Configuration file parsing
@@ -232,9 +267,10 @@ go run ./cmd/sqlc-test-setup start
 ## Tips for Contributors
 
 1. **Run tests before committing:** `go test --tags=examples -timeout 20m ./...`
-2. **Check for race conditions:** Use `-race` flag when testing concurrent code
-3. **Use specific package tests:** Faster iteration during development
-4. **Read existing tests:** Good examples in `/internal/engine/postgresql/*_test.go`
+2. **Cover new behavior end to end:** Add a case under `/internal/endtoend/testdata/`
+3. **Check for race conditions:** Use `-race` flag when testing concurrent code
+4. **Iterate on one case:** `go test ./internal/endtoend -run 'TestReplay/base/<case>'`
+5. **Read existing cases:** `/internal/endtoend/testdata/` has one per feature
 
 ## Git Workflow
 

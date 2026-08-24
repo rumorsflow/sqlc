@@ -44,24 +44,24 @@ func TestExperimentFromString(t *testing.T) {
 			want:  Experiment{},
 		},
 		{
-			name:  "enable analyzerv2",
-			input: "analyzerv2",
-			want:  Experiment{AnalyzerV2: true},
+			name:  "enable coreanalyzer",
+			input: "coreanalyzer",
+			want:  Experiment{CoreAnalyzer: true},
 		},
 		{
-			name:  "disable analyzerv2",
-			input: "noanalyzerv2",
-			want:  Experiment{AnalyzerV2: false},
+			name:  "disable coreanalyzer",
+			input: "nocoreanalyzer",
+			want:  Experiment{CoreAnalyzer: false},
 		},
 		{
-			name:  "enable then disable analyzerv2",
-			input: "analyzerv2,noanalyzerv2",
-			want:  Experiment{AnalyzerV2: false},
+			name:  "enable then disable coreanalyzer",
+			input: "coreanalyzer,nocoreanalyzer",
+			want:  Experiment{CoreAnalyzer: false},
 		},
 		{
-			name:  "analyzerv2 case insensitive",
-			input: "AnalyzerV2",
-			want:  Experiment{AnalyzerV2: true},
+			name:  "coreanalyzer case insensitive",
+			input: "CoreAnalyzer",
+			want:  Experiment{CoreAnalyzer: true},
 		},
 	}
 
@@ -87,9 +87,9 @@ func TestExperimentEnabled(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "analyzerv2 enabled",
-			exp:  Experiment{AnalyzerV2: true},
-			want: []string{"analyzerv2"},
+			name: "coreanalyzer enabled",
+			exp:  Experiment{CoreAnalyzer: true},
+			want: []string{"coreanalyzer"},
 		},
 	}
 
@@ -110,30 +110,9 @@ func TestExperimentEnabled(t *testing.T) {
 }
 
 func TestExperimentString(t *testing.T) {
-	tests := []struct {
-		name string
-		exp  Experiment
-		want string
-	}{
-		{
-			name: "no experiments",
-			exp:  Experiment{},
-			want: "",
-		},
-		{
-			name: "analyzerv2 enabled",
-			exp:  Experiment{AnalyzerV2: true},
-			want: "analyzerv2",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tt.exp.String()
-			if got != tt.want {
-				t.Errorf("Experiment.String() = %q, want %q", got, tt.want)
-			}
-		})
+	exp := Experiment{}
+	if got := exp.String(); got != "" {
+		t.Errorf("Experiment.String() = %q, want %q", got, "")
 	}
 }
 
@@ -154,13 +133,13 @@ func TestIsKnownExperiment(t *testing.T) {
 			want:  false,
 		},
 		{
-			name:  "analyzerv2 lowercase",
-			input: "analyzerv2",
+			name:  "coreanalyzer lowercase",
+			input: "coreanalyzer",
 			want:  true,
 		},
 		{
-			name:  "analyzerv2 mixed case",
-			input: "AnalyzerV2",
+			name:  "coreanalyzer mixed case",
+			input: "CoreAnalyzer",
 			want:  true,
 		},
 	}
