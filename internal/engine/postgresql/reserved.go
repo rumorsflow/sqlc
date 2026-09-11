@@ -59,21 +59,22 @@ func (p *Parser) TypeName(ns, name string) string {
 }
 
 // Param returns the parameter placeholder for the given number.
-// PostgreSQL uses $1, $2, etc.
-func (p *Parser) Param(n int) string {
+// PostgreSQL numbers every parameter: $1, $2, etc.
+func (p *Parser) Param(n int, numbered bool) string {
 	return fmt.Sprintf("$%d", n)
-}
-
-// NamedParam returns the named parameter placeholder for the given name.
-// PostgreSQL/sqlc uses @name syntax.
-func (p *Parser) NamedParam(name string) string {
-	return "@" + name
 }
 
 // Cast returns a type cast expression.
 // PostgreSQL uses expr::type syntax.
 func (p *Parser) Cast(arg, typeName string) string {
 	return arg + "::" + typeName
+}
+
+// Fingerprint reduces a query to pg_query's fingerprint, which survives
+// changes in whitespace, case and layout. sqlc fmt uses it to prove a
+// formatted statement still parses to the same query.
+func (p *Parser) Fingerprint(sql string) (string, error) {
+	return Fingerprint(sql)
 }
 
 // https://www.postgresql.org/docs/current/sql-keywords-appendix.html

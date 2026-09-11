@@ -3,9 +3,11 @@ package ast
 import "github.com/sqlc-dev/sqlc/internal/sql/format"
 
 type WithClause struct {
-	Ctes      *List
-	Recursive bool
-	Location  int
+	Tag NodeTag[WithClause] `json:"tag"`
+
+	Ctes      *List `json:"ctes,omitempty"`
+	Recursive bool  `json:"recursive"`
+	Location  int   `json:"location"`
 }
 
 func (n *WithClause) Pos() int {
@@ -20,5 +22,5 @@ func (n *WithClause) Format(buf *TrackedBuffer, d format.Dialect) {
 	if n.Recursive {
 		buf.WriteString("RECURSIVE ")
 	}
-	buf.join(n.Ctes, d, ", ")
+	buf.joinComma(n.Ctes, d)
 }

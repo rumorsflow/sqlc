@@ -18,7 +18,8 @@
 //
 // A dialect may also hold an extensions/ directory with one directory per
 // extension, each a smaller bundle of the same files, applied when a schema
-// says CREATE EXTENSION.
+// says CREATE EXTENSION — or, for a dialect whose settings map virtual table
+// modules to extensions, CREATE VIRTUAL TABLE ... USING.
 package seed
 
 import (
@@ -28,6 +29,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"path"
 	"slices"
 	"strings"
 
@@ -63,6 +65,24 @@ type Settings struct {
 	// Bool names the type comparisons return.
 	Bool string `json:"bool,omitempty"`
 
+	// Limit names the type a LIMIT or OFFSET count has, which is what a
+	// placeholder in one is typed as. Unset, it is the integer literal's.
+	Limit string `json:"limit,omitempty"`
+
+	// Untyped names the type a placeholder takes when nothing in the query
+	// constrains it. Unset, such a placeholder stays untyped.
+	Untyped string `json:"untyped,omitempty"`
+
+	// PropagateNullable makes a function's result nullable whenever one of
+	// its arguments is, the way ClickHouse's ordinary functions behave,
+	// unless the function is seeded as never null.
+	PropagateNullable bool `json:"propagate_nullable,omitempty"`
+
+	// QualifyDuplicateColumns names a result column after its relation when
+	// an earlier result column from another relation has the same name, as
+	// ClickHouse names the second id of a join e.id.
+	QualifyDuplicateColumns bool `json:"qualify_duplicate_columns,omitempty"`
+
 	// Comparison operators are registered as (T, T) -> Bool for every type in
 	// ComparisonCategories.
 	Comparison           []string `json:"comparison,omitempty"`
@@ -78,6 +98,15 @@ type Settings struct {
 	// same kind of value resolves. "*" makes every seeded type implicitly
 	// castable to every other, for dialects that compare across categories.
 	CastCategories string `json:"cast_categories,omitempty"`
+
+	// Modules names the extension a virtual table module belongs to, for a
+	// dialect whose schemas say CREATE VIRTUAL TABLE ... USING rather than
+	// CREATE EXTENSION: SQLite's fts5 module comes with the functions its
+	// enable_fts5 compile option adds.
+	Modules map[string]string `json:"modules,omitempty"`
+
+	// fsys is the dialect directory the settings were read from.
+	fsys fs.FS
 }
 
 // Type is a type the dialect defines. Aliases are spellings of the same type
@@ -108,11 +137,16 @@ type Cast struct {
 // Function is a function the dialect ships with. Kind is 'f'unction,
 // 'a'ggregate, 'w'indow or 'p'rocedure.
 type Function struct {
-	Name     string `json:"name"`
-	Kind     string `json:"kind,omitempty"`
-	Args     []Arg  `json:"args,omitempty"`
+	Name string `json:"name,omitempty"`
+	Kind string `json:"kind,omitempty"`
+	Args []Arg  `json:"args,omitempty"`
+	// Returns names the result type, or "$1", "$2"... for the type of that
+	// argument.
 	Returns  string `json:"returns"`
 	Nullable bool   `json:"nullable,omitempty"`
+	// NeverNull marks a result that is never NULL even when an argument
+	// is, in a dialect that propagates nullability.
+	NeverNull bool `json:"never_null,omitempty"`
 }
 
 // Relation is a table or view the dialect ships with, such as one of
@@ -155,21 +189,60 @@ func Dialect(fsys fs.FS, dir string) core.Option {
 		if err != nil {
 			return fmt.Errorf("seed: %s: %w", dir, err)
 		}
-		if err := apply(cat, sub); err != nil {
+		settings, err := loadSettings(sub)
+		if err != nil {
+			return err
+		}
+		if err := apply(cat, sub, settings); err != nil {
 			return err
 		}
 		cat.SetExtensionLoader(func(name string) error {
-			return applyExtension(cat, sub, name)
+			dir, ok := settings.extensionDir(name)
+			if !ok {
+				// An extension sqlc has no data for adds nothing, the way
+				// the legacy catalog has always treated one.
+				return nil
+			}
+			return applyExtension(cat, sub, dir)
 		})
 		return nil
 	})
 }
 
-func apply(cat *core.Catalog, fsys fs.FS) error {
-	settings, err := loadSettings(fsys)
+// ExtensionDir resolves what a schema named — an extension, or a virtual
+// table module the dialect's settings map to one — to the extension's
+// directory under dir, reporting whether the dialect has data for it.
+func ExtensionDir(fsys fs.FS, dir, name string) (string, bool) {
+	sub, err := fs.Sub(fsys, dir)
 	if err != nil {
-		return err
+		return "", false
 	}
+	settings, err := loadSettings(sub)
+	if err != nil {
+		return "", false
+	}
+	rel, ok := settings.extensionDir(name)
+	if !ok {
+		return "", false
+	}
+	return path.Join(dir, rel), true
+}
+
+// extensionDir is the directory of the extension a name refers to,
+// relative to the dialect, if the dialect ships one.
+func (s Settings) extensionDir(name string) (string, bool) {
+	if ext, ok := s.Modules[strings.ToLower(name)]; ok {
+		name = ext
+	}
+	dir := path.Join(ExtensionsDir, name)
+	if _, err := fs.Stat(s.fsys, dir); err != nil {
+		return "", false
+	}
+	return dir, true
+}
+
+func apply(cat *core.Catalog, fsys fs.FS, settings Settings) error {
+	var err error
 	b := &builder{
 		cat:        cat,
 		settings:   settings,
@@ -222,6 +295,7 @@ func loadSettings(fsys fs.FS) (Settings, error) {
 	if settings.Dialect == "" {
 		return Settings{}, fmt.Errorf("seed: %s: dialect has no name", SettingsFile)
 	}
+	settings.fsys = fsys
 	return settings, nil
 }
 
@@ -450,6 +524,31 @@ func (b *builder) consts() error {
 			return err
 		}
 	}
+	for key, name := range map[string]string{
+		core.FlagBoolType:    b.settings.Bool,
+		core.FlagLimitType:   b.settings.Limit,
+		core.FlagUntypedType: b.settings.Untyped,
+	} {
+		if name == "" {
+			continue
+		}
+		if _, ok := b.oids[strings.ToLower(name)]; !ok {
+			return fmt.Errorf("seed %s: %s names unknown type %q", b.settings.Dialect, key, name)
+		}
+		if err := b.cat.SetDialectFlag(b.dialectOID, key, name); err != nil {
+			return err
+		}
+	}
+	if b.settings.PropagateNullable {
+		if err := b.cat.SetDialectFlag(b.dialectOID, core.FlagPropagateNullable, "true"); err != nil {
+			return err
+		}
+	}
+	if b.settings.QualifyDuplicateColumns {
+		if err := b.cat.SetDialectFlag(b.dialectOID, core.FlagQualifyDuplicateColumns, "true"); err != nil {
+			return err
+		}
+	}
 	// A schema declares types the seed knows nothing about — enums, domains,
 	// arrays, a SQLite column typed whatever the author felt like. Recording
 	// the comparison operators lets the catalog give those types the same ones.
@@ -602,6 +701,7 @@ func (b *builder) addFunction(fn Function) error {
 		Kind:           fn.Kind,
 		ReturnTypeOID:  returnOID,
 		ReturnNullable: fn.Nullable,
+		NeverNull:      fn.NeverNull,
 		Args:           args,
 	})
 	if err != nil {

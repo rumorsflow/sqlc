@@ -14,9 +14,10 @@ import (
 
 // cc converts a meyer syntax tree into sqlc's engine-independent AST. One
 // converter is used per statement; paramCount numbers the anonymous "?"
-// markers within it.
+// markers within it, and src is the source the statement was parsed from.
 type cc struct {
 	paramCount int
+	src        string
 }
 
 func todo(funcname string, n meyer.Node) *ast.TODO {
@@ -214,15 +215,21 @@ func (c *cc) convertAlterTableStmt(n *meyer.AlterTableStmt) ast.Node {
 		}
 		name := identifier(def.Name)
 		return &ast.AlterTableStmt{
-			Table: parseTableName(n.Table),
+			Table:      parseTableName(n.Table),
+			Incomplete: !representableColumn(def),
 			Cmds: &ast.List{Items: []ast.Node{
 				&ast.AlterTableCmd{
 					Name:    &name,
 					Subtype: ast.AT_AddColumn,
 					Def: &ast.ColumnDef{
-						Colname:   name,
-						TypeName:  &ast.TypeName{Name: columnTypeName(def.Type)},
-						IsNotNull: hasNotNullConstraint(def.Constraints),
+						Colname: name,
+						TypeName: &ast.TypeName{
+							Name:     columnTypeName(def.Type),
+							Spelling: typeSpelling(def.Type),
+						},
+						Typeless:   def.Type == nil,
+						IsNotNull:  hasNotNullConstraint(def.Constraints),
+						PrimaryKey: hasPrimaryKeyConstraint(def.Constraints),
 					},
 				},
 			}},
@@ -278,12 +285,24 @@ func (c *cc) convertCreateTableStmt(n *meyer.CreateTableStmt) ast.Node {
 	stmt := &ast.CreateTableStmt{
 		Name:        parseTableName(n.Name),
 		IfNotExists: n.IfNotExists,
+		// The node models none of these, so a statement carrying them has
+		// no faithful rendering and the formatter keeps it as written.
+		Incomplete: n.Temp || n.Select != nil || len(n.Constraints) > 0 || len(n.Options) > 0,
 	}
 	for _, def := range n.Columns {
+		if !representableColumn(def) {
+			stmt.Incomplete = true
+		}
 		stmt.Cols = append(stmt.Cols, &ast.ColumnDef{
-			Colname:   identifier(def.Name),
-			IsNotNull: hasNotNullConstraint(def.Constraints),
-			TypeName:  &ast.TypeName{Name: columnTypeName(def.Type)},
+			Colname:    identifier(def.Name),
+			IsNotNull:  hasNotNullConstraint(def.Constraints),
+			PrimaryKey: hasPrimaryKeyConstraint(def.Constraints),
+			TypeName: &ast.TypeName{
+				Name:     columnTypeName(def.Type),
+				Spelling: typeSpelling(def.Type),
+			},
+			Typeless: def.Type == nil,
+			Location: def.Pos(),
 		})
 	}
 	return stmt
@@ -306,6 +325,19 @@ func (c *cc) convertCreateVirtualTableFTS5(n *meyer.CreateVirtualTableStmt) ast.
 	stmt := &ast.CreateTableStmt{
 		Name:        parseTableName(n.Name),
 		IfNotExists: n.IfNotExists,
+		Using:       identifier(n.Module),
+	}
+	if n.HasArgs {
+		stmt.ModuleArgs = n.Args
+		if stmt.ModuleArgs == nil {
+			stmt.ModuleArgs = []string{}
+		}
+		// The arguments carry no spans of their own, so the author's exact
+		// breaks cannot be kept; a declaration written across lines keeps
+		// the canonical broken form instead.
+		if n.Pos() >= 0 && n.End() <= len(c.src) {
+			stmt.ModuleArgsMultiline = strings.Contains(c.src[n.Pos():n.End()], "\n")
+		}
 	}
 
 	// The module arguments of a virtual table are an arbitrary token
@@ -324,6 +356,31 @@ func (c *cc) convertCreateVirtualTableFTS5(n *meyer.CreateVirtualTableStmt) ast.
 			TypeName:  &ast.TypeName{Name: "text"},
 		})
 	}
+
+	// An fts5 table also offers hidden columns: one named after the table,
+	// matched against the whole row (`tbl MATCH ?`) and passed to the
+	// auxiliary functions (`bm25(tbl)`), `rank`, the current match's score,
+	// and `rowid`, which an external-content table maps to its content
+	// table. Hidden keeps them out of star expansions and the table's model.
+	stmt.Cols = append(stmt.Cols,
+		&ast.ColumnDef{
+			Colname:   stmt.Name.Name,
+			IsNotNull: true,
+			IsHidden:  true,
+			TypeName:  &ast.TypeName{Name: "text"},
+		},
+		&ast.ColumnDef{
+			Colname:  "rank",
+			IsHidden: true,
+			TypeName: &ast.TypeName{Name: "real"},
+		},
+		&ast.ColumnDef{
+			Colname:   "rowid",
+			IsNotNull: true,
+			IsHidden:  true,
+			TypeName:  &ast.TypeName{Name: "integer"},
+		},
+	)
 
 	return stmt
 }
@@ -437,7 +494,8 @@ func (c *cc) convertColumnNames(cols []*meyer.Ident) *ast.List {
 	for _, col := range cols {
 		name := identifier(col)
 		list.Items = append(list.Items, &ast.ResTarget{
-			Name: &name,
+			Name:     &name,
+			Location: col.Pos(),
 		})
 	}
 	return list
@@ -712,7 +770,11 @@ func (c *cc) convertFrom(refs []*meyer.TableRef) []ast.Node {
 				join.Jointype = ast.JoinTypeLeft
 			case right:
 				join.Jointype = ast.JoinTypeRight
-			case op.Type&meyer.JoinComma == 0:
+			case op.Type&meyer.JoinComma != 0:
+				join.Jointype = ast.JoinTypeComma
+			case op.Type&meyer.JoinCross != 0:
+				join.Jointype = ast.JoinTypeCross
+			default:
 				join.Jointype = ast.JoinTypeInner
 			}
 		}
@@ -866,9 +928,20 @@ func (c *cc) convertBindParam(n *meyer.BindParam) ast.Node {
 		}
 	default:
 		// A named parameter. sqlc carries the name through as the operand of
-		// a pseudo-operator and resolves it later.
+		// a pseudo-operator and resolves it later. The operator is the
+		// parameter's own sigil, so the formatter can print the spelling the
+		// author chose — SQLite accepts :name, @name and $name, but sqlc
+		// gives them different meanings, so they must never be rewritten
+		// into one another.
+		sigil := "@"
+		switch n.Kind {
+		case meyer.ParamColon:
+			sigil = ":"
+		case meyer.ParamDollar:
+			sigil = "$"
+		}
 		return &ast.A_Expr{
-			Name:     &ast.List{Items: []ast.Node{&ast.String{Str: "@"}}},
+			Name:     &ast.List{Items: []ast.Node{&ast.String{Str: sigil}}},
 			Rexpr:    &ast.String{Str: n.Name},
 			Location: n.Pos(),
 		}
@@ -891,12 +964,36 @@ func (c *cc) convertBinaryExpr(n *meyer.BinaryExpr) ast.Node {
 			Location: n.Pos(),
 		}
 	}
+	// SQLite spells some operators two ways (<> and !=, = and ==) and the
+	// tree keeps only the kind, so read the author's choice back out of the
+	// source between the operands; the compiler recognizes every spelling.
+	op := n.Op.String()
+	switch n.Op {
+	case meyer.OpNe:
+		if strings.Contains(c.operatorText(n.X, n.Y), "!=") {
+			op = "!="
+		}
+	case meyer.OpEq:
+		if strings.Contains(c.operatorText(n.X, n.Y), "==") {
+			op = "=="
+		}
+	}
 	return &ast.A_Expr{
-		Name:     &ast.List{Items: []ast.Node{&ast.String{Str: n.Op.String()}}},
+		Name:     &ast.List{Items: []ast.Node{&ast.String{Str: op}}},
 		Lexpr:    c.convert(n.X),
 		Rexpr:    c.convert(n.Y),
 		Location: n.Pos(),
 	}
+}
+
+// operatorText returns the source text separating two adjacent operands,
+// where the operator token sits.
+func (c *cc) operatorText(x, y meyer.Expr) string {
+	start, end := x.End(), y.Pos()
+	if start < 0 || end > len(c.src) || start > end {
+		return ""
+	}
+	return c.src[start:end]
 }
 
 func (c *cc) convertUnaryExpr(n *meyer.UnaryExpr) ast.Node {
@@ -1021,6 +1118,7 @@ func (c *cc) convertCastExpr(n *meyer.CastExpr) ast.Node {
 		Arg: c.convert(n.X),
 		TypeName: &ast.TypeName{
 			Name:        name,
+			Spelling:    typeSpelling(n.Type),
 			Names:       &ast.List{Items: []ast.Node{&ast.String{Str: strings.ToLower(name)}}},
 			ArrayBounds: &ast.List{},
 		},

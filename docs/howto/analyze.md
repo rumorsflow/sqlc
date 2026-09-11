@@ -1,5 +1,10 @@
 # `analyze` - Analyzing query result types
 
+> [!NOTE]
+> `analyze` is in beta. Its flags and JSON output may change in a
+> future release, and the types it reports can differ from the ones
+> `generate` produces.
+
 `sqlc analyze` analyzes a query against a schema and prints the inferred result
 columns and parameters as a single JSON document.
 
@@ -26,7 +31,7 @@ provided. The schema is always read from the `--schema` file.
 ## Flags
 
 - `--dialect`, `-d` - The SQL dialect to use. One of `postgresql`, `mysql`,
-  `sqlite`, `clickhouse`, `googlesql`, or `mssql`. Required.
+  `sqlite`, `clickhouse`, `googlesql`, `mssql`, or `duckdb`. Required.
 - `--schema`, `-s` - Path to the schema (DDL) file. Required.
 - `--ast` - Include each statement's AST in the output. Defaults to `false`.
 
@@ -65,23 +70,24 @@ reports the result columns and parameters:
     "columns": [
       {
         "name": "id",
-        "data_type": "bigserial",
-        "not_null": true,
-        "is_array": false,
+        "type": {
+          "name": "bigserial"
+        },
         "table": "authors"
       },
       {
         "name": "name",
-        "data_type": "text",
-        "not_null": true,
-        "is_array": false,
+        "type": {
+          "name": "text"
+        },
         "table": "authors"
       },
       {
         "name": "bio",
-        "data_type": "text",
-        "not_null": false,
-        "is_array": false,
+        "type": {
+          "name": "text",
+          "nullable": true
+        },
         "table": "authors"
       }
     ],
@@ -90,9 +96,9 @@ reports the result columns and parameters:
         "number": 1,
         "column": {
           "name": "id",
-          "data_type": "bigserial",
-          "not_null": true,
-          "is_array": false,
+          "type": {
+            "name": "bigserial"
+          },
           "table": "authors"
         }
       }
@@ -101,4 +107,13 @@ reports the result columns and parameters:
 ]
 ```
 
-Pass `--ast` to also include each statement's parsed AST under an `ast` key.
+A column's `type` is written as a call expression: a `name` applied to
+`args`, each of which carries an optional `label` and exactly one of `type`,
+`int`, `bool` or `string`, with `nullable` set at whatever depth it applies.
+An array of text is `array` applied to `text`; a `Map(String, Nullable(UInt8))`
+in ClickHouse is `map` applied to `string` and a nullable `uint8`. Names are
+recorded as the engine reports them.
+
+Pass `--ast` to also include each statement's parsed AST under an `ast` key. It
+has the same shape as the output of [`parse`](parse.md), with every node tagged
+by type.

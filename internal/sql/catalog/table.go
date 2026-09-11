@@ -248,6 +248,13 @@ func (c *Catalog) alterTableSetSchema(stmt *ast.AlterTableSetSchemaStmt) error {
 }
 
 func (c *Catalog) createTable(stmt *ast.CreateTableStmt) error {
+	// A virtual table's module is the engine's word for the extension it
+	// needs, the way CREATE EXTENSION is PostgreSQL's.
+	if stmt.Using != "" {
+		if err := c.loadExtension(stmt.Using); err != nil {
+			return err
+		}
+	}
 	ns := stmt.Name.Schema
 	if ns == "" {
 		ns = c.DefaultSchema
@@ -301,6 +308,11 @@ func (c *Catalog) createTable(stmt *ast.CreateTableStmt) error {
 	}
 
 	for _, col := range stmt.Cols {
+		// The legacy catalog has no notion of a hidden column, so it drops
+		// them rather than list them on the table.
+		if col.IsHidden {
+			continue
+		}
 		if notNull, ok := seen[col.Colname]; ok {
 			seen[col.Colname] = notNull || col.IsNotNull
 			if a, ok := coltype[col.Colname]; ok {

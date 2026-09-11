@@ -11,6 +11,7 @@ import (
 
 	"github.com/sqlc-dev/sqlc/internal/compiler"
 	"github.com/sqlc-dev/sqlc/internal/config"
+	"github.com/sqlc-dev/sqlc/internal/core"
 	"github.com/sqlc-dev/sqlc/internal/multierr"
 	"github.com/sqlc-dev/sqlc/internal/opts"
 	"github.com/sqlc-dev/sqlc/internal/sql/ast"
@@ -46,6 +47,9 @@ Examples:
   # Analyze a SQL Server (T-SQL) query
   sqlc analyze --dialect mssql --schema schema.sql query.sql
 
+  # Analyze a DuckDB query
+  sqlc analyze --dialect duckdb --schema schema.sql query.sql
+
   # Analyze a query piped via stdin
   echo "-- name: GetAuthor :one
   SELECT * FROM authors WHERE id = $1;" | sqlc analyze --dialect postgresql --schema schema.sql
@@ -59,7 +63,7 @@ Examples:
 				return err
 			}
 			if dialect == "" {
-				return fmt.Errorf("--dialect flag is required (postgresql, mysql, sqlite, clickhouse, googlesql, or mssql)")
+				return fmt.Errorf("--dialect flag is required (postgresql, mysql, sqlite, clickhouse, googlesql, mssql, or duckdb)")
 			}
 
 			schemaPath, err := cmd.Flags().GetString("schema")
@@ -122,8 +126,10 @@ Examples:
 				engine = config.EngineGoogleSQL
 			case "mssql", "sqlserver":
 				engine = config.EngineMSSQL
+			case "duckdb":
+				engine = config.EngineDuckDB
 			default:
-				return fmt.Errorf("unsupported dialect: %s (use postgresql, mysql, sqlite, clickhouse, googlesql, or mssql)", dialect)
+				return fmt.Errorf("unsupported dialect: %s (use postgresql, mysql, sqlite, clickhouse, googlesql, mssql, or duckdb)", dialect)
 			}
 
 			sql := config.SQL{
@@ -165,7 +171,7 @@ Examples:
 			return nil
 		},
 	}
-	cmd.Flags().StringP("dialect", "d", "", "SQL dialect to use (postgresql, mysql, sqlite, clickhouse, googlesql, or mssql)")
+	cmd.Flags().StringP("dialect", "d", "", "SQL dialect to use (postgresql, mysql, sqlite, clickhouse, googlesql, mssql, or duckdb)")
 	cmd.Flags().StringP("schema", "s", "", "path to the schema file")
 	cmd.Flags().BoolP("ast", "", false, "include the statement AST in the output")
 	return cmd
@@ -199,11 +205,9 @@ type analyzedQuery struct {
 }
 
 type analyzedColumn struct {
-	Name     string `json:"name"`
-	DataType string `json:"data_type"`
-	NotNull  bool   `json:"not_null"`
-	IsArray  bool   `json:"is_array"`
-	Table    string `json:"table,omitempty"`
+	Name  string         `json:"name"`
+	Type  *core.TypeExpr `json:"type,omitempty"`
+	Table string         `json:"table,omitempty"`
 }
 
 type analyzedParam struct {
@@ -238,13 +242,34 @@ func newAnalyzedColumn(col *compiler.Column) analyzedColumn {
 		return analyzedColumn{}
 	}
 	ac := analyzedColumn{
-		Name:     col.Name,
-		DataType: col.DataType,
-		NotNull:  col.NotNull,
-		IsArray:  col.IsArray,
+		Name: col.Name,
+		Type: newAnalyzedType(col),
 	}
 	if col.Table != nil {
 		ac.Table = col.Table.Name
 	}
 	return ac
+}
+
+// newAnalyzedType is the column's type as an expression: the one the
+// analysis core wrote when it did, otherwise the flat description the
+// compiler holds, which is the data type wrapped in one array node per
+// dimension with the column's nullability on the outermost node.
+func newAnalyzedType(col *compiler.Column) *core.TypeExpr {
+	if col.TypeExpr != nil {
+		return col.TypeExpr
+	}
+	if col.DataType == "" {
+		return nil
+	}
+	t := core.ParseTypeExpr(col.DataType)
+	dims := col.ArrayDims
+	if col.IsArray && dims == 0 {
+		dims = 1
+	}
+	for i := 0; i < dims; i++ {
+		t = &core.TypeExpr{Name: "array", Args: []core.TypeArg{{Type: t}}}
+	}
+	t.Nullable = !col.NotNull
+	return t
 }

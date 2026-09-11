@@ -14,6 +14,7 @@ func Prepare(cat *core.Catalog, stmt ast.Node) (core.PrepareResult, error) {
 	a := &analyzer{
 		cat:    cat,
 		params: map[int]core.Parameter{},
+		stars:  &[]core.StarExpansion{},
 	}
 	switch s := stmt.(type) {
 	case *ast.SelectStmt:
@@ -63,6 +64,18 @@ type analyzer struct {
 
 	// resolving guards against an alias that refers to itself.
 	resolving map[string]bool
+
+	// stars are the expansions every star in the statement asked for, shared
+	// with the analyzers of the queries nested in it so one statement reports
+	// all of them.
+	stars *[]core.StarExpansion
+}
+
+func (a *analyzer) recordStar(s core.StarExpansion) {
+	if a.stars == nil {
+		return
+	}
+	*a.stars = append(*a.stars, s)
 }
 
 // subquery analyzes a nested SELECT. It shares the parameter set, so a
@@ -74,6 +87,7 @@ func (a *analyzer) subquery(s *ast.SelectStmt) (*analyzer, error) {
 		params: a.params,
 		outer:  a.scope,
 		ctes:   a.ctes,
+		stars:  a.stars,
 	}
 	if err := sub.analyzeSelect(s); err != nil {
 		return nil, err
@@ -105,11 +119,29 @@ func derivedRel(alias string, cols []core.Column) scopeRel {
 }
 
 func (a *analyzer) result() core.PrepareResult {
-	return core.PrepareResult{
+	// A placeholder nothing constrained takes the dialect's type for one, when
+	// the dialect has such a type.
+	if oid, ok := a.cat.UntypedTypeOID(); ok {
+		for n, p := range a.params {
+			if p.TypeOID == 0 && p.DataType == "" {
+				t := exprType{typeOID: oid, nullable: true}
+				p.TypeOID = oid
+				p.DataType, p.IsArray = a.typeNameOf(t)
+				p.NotNull = false
+				p.Type = a.typeExprOf(t, "")
+				a.params[n] = p
+			}
+		}
+	}
+	res := core.PrepareResult{
 		Command:    a.command,
 		Columns:    a.columns,
 		Parameters: orderedParams(a.params),
 	}
+	if a.stars != nil {
+		res.Stars = *a.stars
+	}
+	return res
 }
 
 func orderedParams(m map[int]core.Parameter) []core.Parameter {
@@ -195,7 +227,37 @@ func (a *analyzer) analyzeSelect(s *ast.SelectStmt) error {
 			return err
 		}
 	}
+	for _, item := range listItems(s.SortClause) {
+		if sb, ok := item.(*ast.SortBy); ok {
+			if _, err := a.typeExpr(sb.Node); err != nil {
+				return fmt.Errorf("order by: %w", err)
+			}
+		}
+	}
+	for _, n := range []ast.Node{s.LimitCount, s.LimitOffset} {
+		if err := a.typeLimit(n); err != nil {
+			return fmt.Errorf("limit: %w", err)
+		}
+	}
 	return nil
+}
+
+// typeLimit types a LIMIT or OFFSET count. A bare placeholder there holds
+// whatever the dialect counts rows in.
+func (a *analyzer) typeLimit(n ast.Node) error {
+	if n == nil {
+		return nil
+	}
+	if pr, ok := n.(*ast.ParamRef); ok {
+		oid, err := a.cat.LimitTypeOID()
+		if err != nil {
+			return err
+		}
+		a.inferParam(pr.Number, exprType{typeOID: oid})
+		return nil
+	}
+	_, err := a.typeExpr(n)
+	return err
 }
 
 func (a *analyzer) typeValuesLists(l *ast.List) error {

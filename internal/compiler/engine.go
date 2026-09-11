@@ -10,6 +10,7 @@ import (
 	"github.com/sqlc-dev/sqlc/internal/dbmanager"
 	"github.com/sqlc-dev/sqlc/internal/engine/clickhouse"
 	"github.com/sqlc-dev/sqlc/internal/engine/dolphin"
+	"github.com/sqlc-dev/sqlc/internal/engine/duckdb"
 	"github.com/sqlc-dev/sqlc/internal/engine/googlesql"
 	"github.com/sqlc-dev/sqlc/internal/engine/mssql"
 	"github.com/sqlc-dev/sqlc/internal/engine/postgresql"
@@ -39,6 +40,13 @@ type Compiler struct {
 	coreAnalysis bool
 	coreDialect  core.Option
 
+	// newParser builds a parser for the configured engine, and is set for
+	// every engine either path supports. The core path analyzes statements
+	// concurrently, and a parser holds enough state that two goroutines cannot
+	// share one, so a goroutine that has to parse something of its own — the
+	// query text it just rewrote — builds its own rather than taking c.parser.
+	newParser func() Parser
+
 	schema []string
 }
 
@@ -58,10 +66,10 @@ func NewCompiler(conf config.SQL, combo config.CombinedSettings, parserOpts opts
 		o(c)
 	}
 
-	// ClickHouse, GoogleSQL and SQL Server have no legacy analysis path to
-	// fall back to.
+	// ClickHouse, GoogleSQL, SQL Server and DuckDB have no legacy analysis
+	// path to fall back to.
 	switch conf.Engine {
-	case config.EngineClickHouse, config.EngineGoogleSQL, config.EngineMSSQL:
+	case config.EngineClickHouse, config.EngineGoogleSQL, config.EngineMSSQL, config.EngineDuckDB:
 		c.coreAnalysis = true
 	}
 	if c.coreAnalysis {
@@ -78,7 +86,7 @@ func NewCompiler(conf config.SQL, combo config.CombinedSettings, parserOpts opts
 
 	switch conf.Engine {
 	case config.EngineSQLite:
-		c.parser = sqlite.NewParser()
+		c.newParser = func() Parser { return sqlite.NewParser() }
 		c.catalog = sqlite.NewCatalog()
 		c.selector = newSQLiteSelector()
 
@@ -92,11 +100,11 @@ func NewCompiler(conf config.SQL, combo config.CombinedSettings, parserOpts opts
 			}
 		}
 	case config.EngineMySQL:
-		c.parser = dolphin.NewParser()
+		c.newParser = func() Parser { return dolphin.NewParser() }
 		c.catalog = dolphin.NewCatalog()
 		c.selector = newDefaultSelector()
 	case config.EnginePostgreSQL:
-		c.parser = postgresql.NewParser()
+		c.newParser = func() Parser { return postgresql.NewParser() }
 		c.catalog = postgresql.NewCatalog()
 		c.selector = newDefaultSelector()
 
@@ -112,6 +120,7 @@ func NewCompiler(conf config.SQL, combo config.CombinedSettings, parserOpts opts
 	default:
 		return nil, fmt.Errorf("unknown engine: %s", conf.Engine)
 	}
+	c.parser = c.newParser()
 	return c, nil
 }
 
@@ -121,32 +130,37 @@ func (c *Compiler) initCore() error {
 	var dialect core.Option
 	switch c.conf.Engine {
 	case config.EngineSQLite:
-		c.parser = sqlite.NewParser()
+		c.newParser = func() Parser { return sqlite.NewParser() }
 		c.selector = newSQLiteSelector()
 		dialect = sqlite.Dialect()
 	case config.EngineMySQL:
-		c.parser = dolphin.NewParser()
+		c.newParser = func() Parser { return dolphin.NewParser() }
 		c.selector = newDefaultSelector()
 		dialect = dolphin.Dialect()
 	case config.EnginePostgreSQL:
-		c.parser = postgresql.NewParser()
+		c.newParser = func() Parser { return postgresql.NewParser() }
 		c.selector = newDefaultSelector()
 		dialect = postgresql.Dialect()
 	case config.EngineClickHouse:
-		c.parser = clickhouse.NewParser()
+		c.newParser = func() Parser { return clickhouse.NewParser() }
 		c.selector = newDefaultSelector()
 		dialect = clickhouse.Dialect()
 	case config.EngineGoogleSQL:
-		c.parser = googlesql.NewParser()
+		c.newParser = func() Parser { return googlesql.NewParser() }
 		c.selector = newDefaultSelector()
 		dialect = googlesql.Dialect()
 	case config.EngineMSSQL:
-		c.parser = mssql.NewParser()
+		c.newParser = func() Parser { return mssql.NewParser() }
 		c.selector = newDefaultSelector()
 		dialect = mssql.Dialect()
+	case config.EngineDuckDB:
+		c.newParser = func() Parser { return duckdb.NewParser() }
+		c.selector = newDefaultSelector()
+		dialect = duckdb.Dialect()
 	default:
 		return fmt.Errorf("unknown engine: %s", c.conf.Engine)
 	}
+	c.parser = c.newParser()
 	c.coreDialect = dialect
 	return nil
 }

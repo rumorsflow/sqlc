@@ -7,16 +7,23 @@ import (
 )
 
 type UpdateStmt struct {
-	Relations     *List
-	TargetList    *List
-	WhereClause   Node
-	FromClause    *List
-	LimitCount    Node
-	ReturningList *List
-	WithClause    *WithClause
+	Tag NodeTag[UpdateStmt] `json:"tag"`
+
+	Relations     *List       `json:"relations,omitempty"`
+	TargetList    *List       `json:"target_list,omitempty"`
+	WhereClause   Node        `json:"where_clause,omitempty"`
+	FromClause    *List       `json:"from_clause,omitempty"`
+	LimitCount    Node        `json:"limit_count,omitempty"`
+	ReturningList *List       `json:"returning_list,omitempty"`
+	WithClause    *WithClause `json:"with_clause,omitempty"`
 	// PostgreSQL 18 RETURNING WITH (OLD AS ..., NEW AS ...) aliases
-	ReturningOldAlias string
-	ReturningNewAlias string
+	ReturningOldAlias string `json:"returning_old_alias"`
+	ReturningNewAlias string `json:"returning_new_alias"`
+	// TableRefs is the statement's table-reference tree as the author wrote
+	// it (MySQL: UPDATE a JOIN b ON ...). Relations flattens that tree to
+	// bare tables for analysis; printing prefers TableRefs when it is set,
+	// so a join's ON condition survives formatting.
+	TableRefs *List `json:"table_refs,omitempty"`
 }
 
 func (n *UpdateStmt) Pos() int {
@@ -27,18 +34,31 @@ func (n *UpdateStmt) Format(buf *TrackedBuffer, d format.Dialect) {
 	if n == nil {
 		return
 	}
+	buf.Group()
+	defer buf.EndGroup()
+
 	if n.WithClause != nil {
 		buf.astFormat(n.WithClause, d)
-		buf.WriteString(" ")
+		// The boundary between the WITH clause and the statement's own
+		// first keyword; the group keeps a break inside the WITH clause
+		// from forcing the statement body apart clause by clause.
+		buf.boundary(n.Relations)
+		buf.Line()
+		buf.Group()
+		defer buf.EndGroup()
 	}
 
 	buf.WriteString("UPDATE ")
-	if items(n.Relations) {
+	if items(n.TableRefs) {
+		buf.astFormat(n.TableRefs, d)
+	} else if items(n.Relations) {
 		buf.astFormat(n.Relations, d)
 	}
 
 	if items(n.TargetList) {
-		buf.WriteString(" SET ")
+		buf.beforeClause(n.TargetList, d)
+		buf.Line()
+		buf.WriteString("SET ")
 
 		multi := false
 		for _, item := range n.TargetList.Items {
@@ -79,12 +99,20 @@ func (n *UpdateStmt) Format(buf *TrackedBuffer, d format.Dialect) {
 			buf.join(vals, d, ",")
 			buf.WriteString(")")
 		} else {
+			buf.Group()
+			buf.Indent()
 			for i, item := range n.TargetList.Items {
 				if i > 0 {
-					buf.WriteString(", ")
+					buf.WriteString(",")
+					buf.boundary(item)
+					buf.Line()
 				}
 				switch nn := item.(type) {
 				case *ResTarget:
+					if nn.Relation != nil {
+						buf.WriteString(d.QuoteIdent(*nn.Relation))
+						buf.WriteString(".")
+					}
 					if nn.Name != nil {
 						buf.WriteString(d.QuoteIdent(*nn.Name))
 					}
@@ -100,26 +128,36 @@ func (n *UpdateStmt) Format(buf *TrackedBuffer, d format.Dialect) {
 					buf.astFormat(item, d)
 				}
 			}
+			buf.EndIndent()
+			buf.EndGroup()
 		}
 	}
 
 	if items(n.FromClause) {
-		buf.WriteString(" FROM ")
+		buf.beforeClause(n.FromClause, d)
+		buf.Line()
+		buf.WriteString("FROM ")
 		buf.astFormat(n.FromClause, d)
 	}
 
 	if set(n.WhereClause) {
-		buf.WriteString(" WHERE ")
-		buf.astFormat(n.WhereClause, d)
+		buf.beforeClause(n.WhereClause, d)
+		buf.Line()
+		buf.WriteString("WHERE ")
+		buf.condition(n.WhereClause, d)
 	}
 
 	if set(n.LimitCount) {
-		buf.WriteString(" LIMIT ")
+		buf.beforeClause(n.LimitCount, d)
+		buf.Line()
+		buf.WriteString("LIMIT ")
 		buf.astFormat(n.LimitCount, d)
 	}
 
 	if items(n.ReturningList) {
-		buf.WriteString(" RETURNING ")
+		buf.beforeClause(n.ReturningList, d)
+		buf.Line()
+		buf.WriteString("RETURNING ")
 		formatReturningOptions(buf, d, n.ReturningOldAlias, n.ReturningNewAlias)
 		buf.astFormat(n.ReturningList, d)
 	}

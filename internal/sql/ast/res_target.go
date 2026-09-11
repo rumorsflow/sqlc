@@ -3,10 +3,16 @@ package ast
 import "github.com/sqlc-dev/sqlc/internal/sql/format"
 
 type ResTarget struct {
-	Name        *string
-	Indirection *List
-	Val         Node
-	Location    int
+	Tag NodeTag[ResTarget] `json:"tag"`
+
+	Name        *string `json:"name,omitempty"`
+	Indirection *List   `json:"indirection,omitempty"`
+	Val         Node    `json:"val,omitempty"`
+	Location    int     `json:"location"`
+	// Relation qualifies Name in a multi-table UPDATE's SET list (MySQL:
+	// SET t.col = ...). Analysis matches on Name alone; printing needs the
+	// qualifier to keep the assignment on the table the author named.
+	Relation *string `json:"relation,omitempty"`
 }
 
 func (n *ResTarget) Pos() int {

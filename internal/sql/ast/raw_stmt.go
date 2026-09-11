@@ -3,9 +3,11 @@ package ast
 import "github.com/sqlc-dev/sqlc/internal/sql/format"
 
 type RawStmt struct {
-	Stmt         Node
-	StmtLocation int
-	StmtLen      int
+	Tag NodeTag[RawStmt] `json:"tag"`
+
+	Stmt         Node `json:"stmt,omitempty"`
+	StmtLocation int  `json:"stmt_location"`
+	StmtLen      int  `json:"stmt_len"`
 }
 
 func (n *RawStmt) Pos() int {
@@ -16,5 +18,7 @@ func (n *RawStmt) Format(buf *TrackedBuffer, d format.Dialect) {
 	if n.Stmt != nil {
 		buf.astFormat(n.Stmt, d)
 	}
+	// The terminator goes first: a trailing line comment would swallow it.
 	buf.WriteString(";")
+	buf.flushRemaining()
 }

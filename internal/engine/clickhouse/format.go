@@ -18,14 +18,8 @@ func (p *Parser) TypeName(ns, name string) string {
 // Param returns the parameter placeholder for the given number.
 // ClickHouse uses {name:Type} for named parameters, but for positional
 // parameters we use ? which is supported by the clickhouse-go driver.
-func (p *Parser) Param(n int) string {
+func (p *Parser) Param(n int, numbered bool) string {
 	return "?"
-}
-
-// NamedParam returns the named parameter placeholder for the given name.
-// ClickHouse uses {name:Type} syntax for named parameters.
-func (p *Parser) NamedParam(name string) string {
-	return "{" + name + ":String}"
 }
 
 // Cast returns a type cast expression.

@@ -23,7 +23,7 @@ go run ./cmd/sqlc-test-setup install
 This will:
 - Configure the apt proxy (if `http_proxy` is set, e.g. in Claude Code remote environments)
 - Install PostgreSQL via apt
-- Download and install MySQL 9 from Oracle's deb bundle
+- Download and install MySQL 26.7 from Oracle's deb bundle
 - Resolve all dependencies automatically
 - Skip anything already installed
 
@@ -120,8 +120,8 @@ A case is a directory holding the inputs and the expected output. `exec.json`
 names the command and its arguments — omit it and the case runs `generate`,
 comparing the generated files against the ones committed alongside; give it
 `{"command": "analyze", "args": [...]}` and the case compares the command's
-stdout against `stdout.txt`. A case that is expected to fail commits its
-`stderr.txt`. Regenerate a golden by running the command in its directory and
+stdout against `stdout.json` (or `stdout.txt` for a command that does not
+print JSON). A case that is expected to fail commits its `stderr.txt`. Regenerate a golden by running the command in its directory and
 writing the output back over the committed file.
 
 `TestReplay` runs the whole corpus once per *context*. `base` runs each case as
@@ -143,6 +143,29 @@ SQLC_TEST_CORE=1 go test ./internal/endtoend -run 'TestReplay/core'
 Go aborts a test binary on panic, so a case that panics the core analyzer ends
 the run early. Run a subset to get past one (`-run 'TestReplay/core/^select'`).
 
+### Dialect Checks
+
+The dialect seeds under `/internal/engine/<engine>/dialect/` are generated
+from a live database by `/internal/goldeneye`, a nested module, and its tests
+verify the committed files against one byte for byte. The same module checks
+the `analyze_*` cases under `/internal/endtoend/testdata/` against what the
+database itself reports for them, so a `fixture.sql` next to a case's schema
+gives the queries rows to run against. ClickHouse, MySQL and SQLite have the
+check today; engines whose database is not available skip.
+
+```bash
+cd internal/goldeneye
+go run ./cmd/goldeneye install clickhouse   # download the pinned clickhouse binary once
+go run ./cmd/goldeneye install sqlite       # build the pinned sqlite3 shells once; needs a C compiler
+POSTGRESQL_SERVER_URI="postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable" \
+MYSQL_SERVER_URI="root:mysecretpassword@tcp(127.0.0.1:3306)/mysql" go test ./...
+go run ./cmd/goldeneye generate postgresql  # rewrite the files after a change
+```
+
+The checks are not part of CI. The `gen` workflow
+(`.github/workflows/gen.yml`) generates the files on demand and uploads
+them as an artifact.
+
 ### Example Tests
 
 - **Location:** `/examples/` directory
@@ -158,7 +181,7 @@ The `docker-compose.yml` provides test databases:
   - Password: `mysecretpassword`
   - Database: `postgres`
 
-- **MySQL 9** - Port 3306
+- **MySQL 26.7** - Port 3306
   - User: `root`
   - Password: `mysecretpassword`
   - Database: `dinotest`
@@ -215,8 +238,16 @@ MYSQL_SERVER_URI="root:mysecretpassword@tcp(127.0.0.1:3306)/mysql?multiStatement
   - `/postgresql/` - PostgreSQL parser and converter
   - `/dolphin/` - MySQL parser (uses TiDB parser)
   - `/sqlite/` - SQLite parser
+  - `/duckdb/` - DuckDB 2.0 parser (uses darkwing, the pure Go port of
+    DuckDB's PEG parser)
   - `<engine>/dialect/` - The engine's type system and standard library, as
-    JSONL read by `/internal/core/seed`
+    JSONL read by `/internal/core/seed`; the generated parts come from
+    `/internal/goldeneye`
+- `/internal/goldeneye/` - Nested module that generates the dialect seeds
+  under `/internal/engine/<engine>/dialect/` from a live database, checks
+  the committed ones against it, and checks the analyze cases under
+  `/internal/endtoend/testdata/` against what the database reports, one
+  package per engine; see its README
 - `/internal/core/` - The analysis core: catalog, analyzer and dialect seeds
 - `/internal/compiler/` - Query compilation logic
 - `/internal/codegen/` - Code generation for different languages
